@@ -581,6 +581,8 @@ for(t in 1:length(tox.adults)){
       # 
       # condition[5] <- ifelse(which.min(abs(est.tox - 0.25)) == 1, 1, 0) # recommended dose level should be 1
       # condition[6] <- ifelse(est.tox[1] > 0.35, 0, 1) # estimated tox of first dose should be not larger than 35%
+      
+      # these conditions were dropped due to not being feasible
       condition[5] <- 1
       condition[6] <- 1
       
@@ -647,7 +649,7 @@ specification.2P.weak <- data %>% select("tox.scenario", "simulation.ID", starts
 #plm2.prior <- function(mu,var.alpha,var.beta,di,dR,target.quantile){abs(target.quantile - quantile(inv.logit(rnorm(1e4,mean=mu[1],sd=sqrt(var.alpha))+exp(rnorm(1e4,mean=mu[2],sd=sqrt(var.beta)))*log(di/dR)), probs=0.9))}
 #data %>% group_by(tox.scenario,simulation.ID) %>% do(data.frame("var.alpha.weak"=optimize(plm2.prior, mu=c(.$alpha,.$beta), var.beta=1, di=.$ped.dose2, dR=dR.adults, target.quantile=0.8, interval=c(0.01, 9))$minimum)) %>% print(n=25)
 
-# 
+# partial borrowing was dropped, since results were highly similar to mixture priors
 # # add the partial borrowing
 # specification.2P.25 <- specification.2P.full %>% 
 #   group_by(tox.scenario,simulation.ID) %>% 
@@ -730,6 +732,8 @@ for(t in 1:length(tox.adults)){
       # 
       # condition[5] <- ifelse(which.min(abs(est.tox - 0.25)) == 1, 1, 0) # recommended dose level should be 1
       # condition[6] <- ifelse(est.tox[1] > 0.35, 0, 1) # estimated tox of first dose should be not larger than 35%
+      
+      # these conditions were dropped due to not being feasible
       condition[5] <- 1
       condition[6] <- 1
       
@@ -812,26 +816,10 @@ full.specifications <- rbind(full.specifications,
                                mutate(skeleton1=tox.dose1,skeleton2=tox.dose2,skeleton3=tox.dose3,skeleton4=tox.dose4, specification="1P.oracle"))
 
 
-# 2P-CRM: dR is the dose that actually has 30% tox prob, di is the dose with 10% tox prob, Sigma rather uninformative (2,0,0,1)
-
-# the following is the same for all simulations within one scenario:
-# find doses with 10% and 30% tox prob and make them dR and di
-# find corresponding alpha and beta
-# make the variance of oracle approach be the same as full borrowing
-
-# df.comb.scenarios <- tibble(expand.grid("tox.scenario"=unique(full.specifications$tox.scenario), "ped.scenario"=unique(full.specifications$ped.scenario))) %>%
-#   rowwise() %>%
-#   mutate(dose.di = case_when(ped.scenario=="weaker" ~ optimize(function(doses){abs(fun.true.tox.ped.weaker(doses=doses,t=tox.scenario)-0.1)},1:300)$minimum,
-#                              ped.scenario=="same" ~ optimize(function(doses){abs(fun.true.tox.ped.same(doses=doses,t=tox.scenario)-0.1)},1:300)$minimum,
-#                              ped.scenario=="stronger" ~ optimize(function(doses){abs(fun.true.tox.ped.stronger(doses=doses,t=tox.scenario)-0.1)},1:300)$minimum),
-#          dR = case_when(ped.scenario=="weaker" ~ round(optimize(function(doses){abs(fun.true.tox.ped.weaker(doses=doses,t=tox.scenario)-0.3)},1:300)$minimum),
-#                              ped.scenario=="same" ~ round(optimize(function(doses){abs(fun.true.tox.ped.same(doses=doses,t=tox.scenario)-0.3)},1:300)$minimum),
-#                              ped.scenario=="stronger" ~ round(optimize(function(doses){abs(fun.true.tox.ped.stronger(doses=doses,t=tox.scenario)-0.3)},1:300)$minimum)),
-#          alpha = logit(0.3), beta = (logit(0.1)-logit(0.3))/log(dose.di/dR)) %>% ungroup() %>% select(-c(dose.di))
-# 
-# full.specifications <- bind_rows(full.specifications, 
-#                                  full.specifications %>% filter(specification=="2P.full") %>% select(-c(dR,alpha,beta,specification)) %>% 
-#                                    left_join(.,df.comb.scenarios,by=c("tox.scenario", "ped.scenario")) %>% add_column(specification="2P.oracle"))
+# 2P-CRM: 
+# dR is the dose that actually has 25% tox prob, 
+# and di is determined as the best fit to the truth found by fitting a linear regression through all dose-toxicity points in the "interesting" range of 15% to 35% toxicity probability 
+# variance of oracle approach is the same as full borrowing
 
 oracle.2P <- function(){
   dose.data <- tibble("dose"=5:80, "tox"=tox.fun(5:80)) %>% filter(tox>0, tox<1)
