@@ -1,6 +1,12 @@
-#####################################################################################################################################################################
-########### function to determine the algorithm for phase I trial ###########
 
+
+# Author: Dario Zocholl, Instiute of Biometry and Clinical Epidemiology, Charité - Universitätsmedizin Berlin
+
+########################################
+######## This script is required for the simulations for the manuscript "On the feasibility of pediatric dose-finding trials in small samples with information from a preceding trial in adults."
+######## This script contains a function to simulate the conduct of phase I trials using the Continual Reassessment Method 
+######## All files used for the manuscript are publicly available under https://github.com/dariozchl/Ped-PhaseI-Simulations
+########################################
 
 
 sim.phaseI <- function(algorithm, doses, target.tox, true.tox,

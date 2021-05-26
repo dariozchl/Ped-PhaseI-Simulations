@@ -1,17 +1,24 @@
+
+# Author: Dario Zocholl, Instiute of Biometry and Clinical Epidemiology, Charité - Universitätsmedizin Berlin
+
+########################################
+######## This script performs the simulations for the manuscript "On the feasibility of pediatric dose-finding trials in small samples with information from a preceding trial in adults."
+######## This script uses a function defined in the file "crm_function.R"
+######## This script only simulates data - the analysis of the data is performed within the file "plots.R"
+######## All files are publicly available under https://github.com/dariozchl/Ped-PhaseI-Simulations
+########################################
+
+
 library(rstan)
 library(doParallel)
 library(dplyr)
 library(tidyr)
-library(tibble) # for add_column()
+library(tibble)
 
 set.seed(16)
 
 setwd("S:/C01/iBikE/Studien/Phase1Studien/3_Programme/Data")
 source("S:/C01/iBikE/Studien/Phase1Studien/3_Programme/R-Codes/crm_function.R")
-
-#setwd("C:/Users/zocholdo/Documents/Temporary/3_Programme/Data")
-#source("C:/Users/zocholdo/Documents/Temporary/3_Programme/R-Codes/crm_function.R")
-
 
 
 ########################################
@@ -308,10 +315,10 @@ generate_stan_model <- function(algorithm, borrow){
 
 crm.fixed <- generate_stan_model(algorithm = "CRM", borrow = "fixed")
 crm.mixture <- generate_stan_model(algorithm = "CRM", borrow = "mixture")
-#crm.hierarchical <- generate_stan_model(algorithm = "CRM", borrow = "hierarchical")
+#crm.hierarchical <- generate_stan_model(algorithm = "CRM", borrow = "hierarchical") # not used in the simulations
 PLM2.fixed <- generate_stan_model(algorithm = "PLM2", borrow = "fixed")
 PLM2.mixture <- generate_stan_model(algorithm = "PLM2", borrow = "mixture")
-#PLM2.partial <- generate_stan_model(algorithm = "PLM2", borrow = "partial")
+#PLM2.partial <- generate_stan_model(algorithm = "PLM2", borrow = "partial") # not used in the simulations
 
 
 
@@ -326,6 +333,7 @@ inv.logit <- function(x){
   exp(x)/(1+exp(x))
 }
 
+# define logit-function()
 logit <- function(p){ 
   log(p / (1-p)) 
 }
@@ -347,7 +355,6 @@ dose.tox.weak <- function(doses){1-LL4(x=doses,b=1.5,c=0,d=1,e=70)}
 dose.tox.moderate <- function(doses){1-LL4(x=doses,b=1.3,c=0,d=1,e=50)}
 dose.tox.strong <- function(doses){1-LL4(x=doses,b=1.8,c=0,d=1,e=27)}
 
-
 probs.plateau <- c(0.0001, 0.01, 0.03, 0.07, 0.10, 0.12, 0.15, 0.3, 0.95, 0.28)
 spline.plateau <- splinefun(c(3.5, doses.adults,188,40), probs.plateau, "monoH.FC")
 
@@ -367,7 +374,7 @@ round.2 <- function(x){round(x, 2)}
 lapply(tox.adults, round.2)
 
 
-# pediatric toxicity scenarios
+# pediatric toxicity scenarios (t is an index for the toxicity scenario)
 fun.true.tox.ped.weaker <- function(doses,t){ if(t==1){dose.tox.weak(doses)^1.3} else if(t==2){dose.tox.moderate(doses)^1.3} else if(t==3){dose.tox.strong(doses)^1.3} else if(t==4){spline.plateau.weaker(doses)} else if(t==5){spline.waves.weaker(doses)} }
 fun.true.tox.ped.same <- function(doses,t){ if(t==1){dose.tox.weak(doses)} else if(t==2){dose.tox.moderate(doses)} else if(t==3){dose.tox.strong(doses)} else if(t==4){spline.plateau(doses)} else if(t==5){spline.waves(doses)} }
 fun.true.tox.ped.stronger <- function(doses,t){ if(t==1){dose.tox.weak(doses)^0.7} else if(t==2){dose.tox.moderate(doses)^0.7} else if(t==3){dose.tox.strong(doses)^0.4} else if(t==4){spline.plateau.stronger(doses)} else if(t==5){spline.waves.stronger(doses)} }
