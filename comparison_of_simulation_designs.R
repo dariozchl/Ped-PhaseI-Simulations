@@ -1,7 +1,11 @@
 ###############
 ### compare simulation designs with various number of pediatric trials subsequent to a adult trial: 
-### 500 * 200 vs 1e5 * 1
+### 250*40 vs 1e4 * 1
 ###############
+
+library(rstan)
+library(doParallel)
+library(tidyverse)
 
 PLM2.fixed <- stan_model("BLRM.stan")
 PLM2.mixture <- stan_model("BLRM_mixture.stan")
@@ -51,7 +55,7 @@ prior.PLM2 <- list(mu=c(logit(0.25), 0.4606), Sigma=matrix(c(1.939^2, 0, 0, 1.5^
 
 start.time <- Sys.time()
 
-n.sim <- 1e4
+n.sim <- 5e4
 
 library(doParallel)
 library(tidyverse)
@@ -93,6 +97,10 @@ sim_results <- foreach(nsim = 1:n.sim, .packages=c("rstan", "tidyverse")) %dopar
 
 stopCluster(cl)
 Sys.time() - start.time
+
+saveRDS(sim_results, "comparison_of_simulation_designs_adult_data.RDS")
+sim_results <- readRDS("comparison_of_simulation_designs_adult_data.RDS")
+
 
 # data preparation
 sim_results_tibbles <- lapply(purrr::transpose(sim_results), function(lst) do.call(rbind, lst))
@@ -154,7 +162,7 @@ full.specifications$ped.id <- as.numeric(rownames(full.specifications))
 
 ncores <- detectCores()*3/4; cl <- makeCluster(ncores); registerDoParallel(cl);
 
-steps <- 40 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
+steps <- n.sim/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
 
 for(i in 1:steps){
   
@@ -192,7 +200,7 @@ for(i in 1:steps){
     return(results.sim)
   }
   
-  if(i==1) { ped.data1x1 <- results } else { ped.data1x1 <- rbind(ped.data1x1, results) }
+  if(i==1) { ped_data1x1 <- results } else { ped_data1x1 <- rbind(ped_data1x1, results) }
   
   end.time <- Sys.time()
   time.taken <- difftime(end.time, start.time, units = "min") 
@@ -201,8 +209,8 @@ for(i in 1:steps){
 
 stopCluster(cl) # end parallel computing 
 
-saveRDS(ped.data1x1, "ped_data1x1.rds")
-ped.data1x1 <- readRDS("ped_data1x1.rds")
+saveRDS(ped_data1x1, "ped_data1x1.rds")
+ped_data1x1 <- readRDS("ped_data1x1.rds")
 
 
 
@@ -210,13 +218,13 @@ ped.data1x1 <- readRDS("ped_data1x1.rds")
 ######## Simulation pediatric trials manyx1
 ########################################
 
-full.specifications.manyx1 <- full.specifications %>% filter(simulation.ID %in% sample(1:nrow(full.specifications),250,replace=TRUE))
-
-full.specifications.manyx1$ped.id <- as.numeric(rownames(full.specifications.manyx1))
+sample.ID <- sample(unique(full.specifications$simulation.ID),n.sim/100,replace=FALSE)
+full.specifications.manyx1 <- full.specifications %>% filter(simulation.ID %in% sample.ID) %>%
+  rownames_to_column(var="index") %>% mutate(index = as.numeric(index))
 
 ncores <- detectCores()*3/4; cl <- makeCluster(ncores); registerDoParallel(cl);
 
-steps <- 40 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
+steps <- n.sim/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
 
 for(i in 1:steps){
   
@@ -247,14 +255,14 @@ for(i in 1:steps){
                               prior = prior, borrow = borrow, prior.distr = "Normal",
                               skeleton = c(input.simulation$skeleton1,input.simulation$skeleton2,input.simulation$skeleton3,input.simulation$skeleton4), 
                               dR = input.simulation$dR, stopping.rule = "mean", escalation.rule = "mean",
-                              sample.size = input.simulation$sample.size, n.sim = 40, cohort.size = 2, 
+                              sample.size = input.simulation$sample.size, n.sim = 100, cohort.size = 2, 
                               iterations = 5000, stanmodel = stanmodel)
     
     results.sim <- cbind(results.sim[[1]], "index"=index)                                              
     return(results.sim)
   }
   
-  if(i==1) { ped.datamanyx1 <- results } else { ped.datamanyx1 <- rbind(ped.data, results) }
+  if(i==1) { ped_datamanyx1 <- results } else { ped_datamanyx1 <- rbind(ped_datamanyx1, results) }
   
   end.time <- Sys.time()
   time.taken <- difftime(end.time, start.time, units = "min") 
@@ -263,8 +271,81 @@ for(i in 1:steps){
 
 stopCluster(cl) # end parallel computing 
 
-saveRDS(ped.datamanyx1, "ped_data1x1.rds")
-ped.datamanyx1 <- readRDS("ped_data1x1.rds")
+saveRDS(ped_datamanyx1, "ped_datamanyx1.rds")
 
 
 
+########################################
+######## Results pediatric trials 1 x 1
+########################################
+
+ped_data1x1 <- readRDS("ped_data1x1.rds")
+
+ped_data1x1 <- as_tibble(ped_data1x1) %>% 
+  mutate(toxicity.dose = case_when(true.tox>(1/3) ~ "overdosing",true.tox<(1/6) ~ "underdosing",TRUE ~ "acceptable")) %>% 
+  group_by(simulation.ID, index) %>% 
+  mutate(toxicity.MTD = case_when(
+    MTD.dose.level==0 ~ "early ET",
+    MTD.dose.level==1 ~ toxicity.dose[which(dose.level==1)], 
+    MTD.dose.level==2 ~ toxicity.dose[which(dose.level==2)],
+    MTD.dose.level==3 ~ toxicity.dose[which(dose.level==3)], 
+    MTD.dose.level==4 ~ toxicity.dose[which(dose.level==4)])
+  ) %>% 
+  pivot_wider(., id_cols=c(simulation.ID, index, sample.size, MTD.dose.level, toxicity.MTD), names_from = dose.level, 
+              values_from = c(doses, mean.tox, true.tox, toxicities.per.dose, patients.per.dose, toxicity.dose), 
+              names_sep = "") %>% 
+  mutate(toxicity.MTD = case_when(
+    MTD.dose.level==0 & true.tox1>(1/3) ~ "correct ET", 
+    MTD.dose.level==4 & true.tox4<(1/6) & mean.tox4<(1/6) ~ "correct ET", 
+    MTD.dose.level==0 & true.tox1<(1/3)  ~ "false ET",
+    TRUE ~ toxicity.MTD))
+
+ped_data1x1 <- ped_data1x1 %>% mutate(ped.id = index)
+
+ped_data1x1 <- left_join(ped_data1x1, full.specifications, by=c("ped.id"))
+
+
+########################################
+######## Results pediatric trials many x 1
+########################################
+
+ped_datamanyx1 <- readRDS("ped_datamanyx1.rds")
+
+ped_datamanyx1 <- as_tibble(ped_datamanyx1) %>% 
+  mutate(toxicity.dose = case_when(true.tox>(1/3) ~ "overdosing",true.tox<(1/6) ~ "underdosing",TRUE ~ "acceptable")) %>% 
+  group_by(simulation.ID, index) %>% 
+  mutate(toxicity.MTD = case_when(
+    MTD.dose.level==0 ~ "early ET",
+    MTD.dose.level==1 ~ toxicity.dose[which(dose.level==1)], 
+    MTD.dose.level==2 ~ toxicity.dose[which(dose.level==2)],
+    MTD.dose.level==3 ~ toxicity.dose[which(dose.level==3)], 
+    MTD.dose.level==4 ~ toxicity.dose[which(dose.level==4)])
+  ) %>% 
+  pivot_wider(., id_cols=c(simulation.ID, index, sample.size, MTD.dose.level, toxicity.MTD), names_from = dose.level, 
+              values_from = c(doses, mean.tox, true.tox, toxicities.per.dose, patients.per.dose, toxicity.dose), 
+              names_sep = "") %>% 
+  mutate(toxicity.MTD = case_when(
+    MTD.dose.level==0 & true.tox1>(1/3) ~ "correct ET", 
+    MTD.dose.level==4 & true.tox4<(1/6) & mean.tox4<(1/6) ~ "correct ET", 
+    MTD.dose.level==0 & true.tox1<(1/3)  ~ "false ET",
+    TRUE ~ toxicity.MTD))
+
+ped_datamanyx1 <- ped_datamanyx1 %>% mutate(ped.id = full.specifications.manyx1[index,]$ped.id) %>% rename(simulation.ID.ped = simulation.ID)
+
+ped_datamanyx1 <- left_join(ped_datamanyx1, full.specifications.manyx1, by=c("index"))
+
+
+
+bind_rows(ped_datamanyx1 %>% add_column(design="many_by_1"), ped_data1x1 %>% add_column(design="1_by_1")) %>% 
+  group_by("Prior" = unlist(specification), ped.scenario, design) %>% 
+  summarize("Acceptable" = sum(toxicity.MTD=="acceptable"),
+            "Correct ET" = sum(toxicity.MTD=="correct ET"),
+            "Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"),
+            "N"=n()) %>% 
+  pivot_longer(., cols=c(Acceptable, `Correct ET`, `Sum of \ncorrect decisions`), names_to="Decision", values_to="Number") %>%
+  rowwise() %>%
+  mutate("Proportion" = 100*Number/N) %>%
+  pivot_wider(id_cols = c(Prior, ped.scenario, design, Decision), 
+              values_from=c(Proportion), 
+              names_from=design, names_glue = '{design}.{.value}') %>%
+  mutate(prop.diff = `1_by_1.Proportion` - many_by_1.Proportion)
