@@ -1,0 +1,15 @@
+# A tibble: 12 x 6
+   Prior      ped.scenario Decision                     `1_by_1.Proportion` many_by_1.Proportion prop.diff
+   <chr>      <chr>        <chr>                                      <dbl>                <dbl>     <dbl>
+ 1 2P.mixture same         "Acceptable"                               49.5                 49.8   -0.344  
+ 2 2P.mixture same         "Correct ET"                                3.24                 2.90   0.341  
+ 3 2P.mixture same         "Sum of \ncorrect decisions"               52.7                 52.7   -0.00300
+ 4 2P.mixture stronger     "Acceptable"                               20.9                 20.8    0.0710 
+ 5 2P.mixture stronger     "Correct ET"                               20.1                 19.8    0.372  
+ 6 2P.mixture stronger     "Sum of \ncorrect decisions"               41.0                 40.5    0.443  
+ 7 2P.weak    same         "Acceptable"                               34.1                 33.3    0.863  
+ 8 2P.weak    same         "Correct ET"                                7.74                 6.94   0.802  
+ 9 2P.weak    same         "Sum of \ncorrect decisions"               41.9                 40.2    1.66   
+10 2P.weak    stronger     "Acceptable"                               12.9                 12.6    0.247  
+11 2P.weak    stronger     "Correct ET"                               36.6                 36.1    0.572  
+12 2P.weak    stronger     "Sum of \ncorrect decisions"               49.5                 48.7    0.819  

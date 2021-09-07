@@ -55,10 +55,9 @@ prior.PLM2 <- list(mu=c(logit(0.25), 0.4606), Sigma=matrix(c(1.939^2, 0, 0, 1.5^
 
 start.time <- Sys.time()
 
-n.sim <- 5e4
+n.sim <- 1e5
 
-library(doParallel)
-library(tidyverse)
+
 cores <- detectCores()*3/4
 cl <- makeCluster(cores)
 registerDoParallel(cl)
@@ -110,6 +109,7 @@ posterior.summary <- sim_results_tibbles[[2]]
 
 # add pediatric doses to adult data 
 data <- data %>% 
+  mutate(MTD.dose.level = case_when(MTD.dose.level==0 & mean.tox1<(1/3) ~ 1, TRUE ~ MTD.dose.level)) %>%
   mutate("MTD" = doses.adults[MTD.dose.level]) %>% 
   mutate("ped.dose1"=0.7*MTD, "ped.dose2"=MTD, "ped.dose3"=1.3*MTD, "ped.dose4"=1.6*MTD)
 
@@ -160,7 +160,7 @@ full.specifications <- full.specifications %>%
 
 full.specifications$ped.id <- as.numeric(rownames(full.specifications))
 
-ncores <- detectCores()*3/4; cl <- makeCluster(ncores); registerDoParallel(cl);
+ncores <- detectCores()*7/8; cl <- makeCluster(ncores); registerDoParallel(cl);
 
 steps <- n.sim/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
 
@@ -218,19 +218,20 @@ ped_data1x1 <- readRDS("ped_data1x1.rds")
 ######## Simulation pediatric trials manyx1
 ########################################
 
-sample.ID <- sample(unique(full.specifications$simulation.ID),n.sim/100,replace=FALSE)
+sample.ID <- sample(unique(full.specifications$simulation.ID),n.sim/50,replace=FALSE)
 full.specifications.manyx1 <- full.specifications %>% filter(simulation.ID %in% sample.ID) %>%
   rownames_to_column(var="index") %>% mutate(index = as.numeric(index))
 
-ncores <- detectCores()*3/4; cl <- makeCluster(ncores); registerDoParallel(cl);
+ncores <- detectCores()*7/8; cl <- makeCluster(ncores); registerDoParallel(cl);
 
-steps <- n.sim/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
+steps <- nrow(full.specifications.manyx1)*100/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
 
 for(i in 1:steps){
   
   start.time <- Sys.time()
   
-  results <- foreach(index=((nrow(full.specifications.manyx1)/steps)*(i-1)+1):((nrow(full.specifications.manyx1)/steps)*i), .combine=rbind, .multicombine=F, .packages = c("rstan")) %dopar% {
+  results <- foreach(index=((nrow(full.specifications.manyx1)/steps)*(i-1)+1):((nrow(full.specifications.manyx1)/steps)*i), 
+                     .combine=rbind, .multicombine=F, .packages = c("rstan")) %dopar% {
     
     # define columns that are used for the prior
     input.simulation <- full.specifications.manyx1[index,]
@@ -264,6 +265,8 @@ for(i in 1:steps){
   
   if(i==1) { ped_datamanyx1 <- results } else { ped_datamanyx1 <- rbind(ped_datamanyx1, results) }
   
+  saveRDS(ped_datamanyx1, "ped_datamanyx1.rds")
+  
   end.time <- Sys.time()
   time.taken <- difftime(end.time, start.time, units = "min") 
   print(paste("Iteration Number", (nrow(full.specifications.manyx1)/steps)*i, ", time taken for this iteration", time.taken, ", current time", Sys.time()))
@@ -271,7 +274,6 @@ for(i in 1:steps){
 
 stopCluster(cl) # end parallel computing 
 
-saveRDS(ped_datamanyx1, "ped_datamanyx1.rds")
 
 
 
@@ -330,22 +332,60 @@ ped_datamanyx1 <- as_tibble(ped_datamanyx1) %>%
     MTD.dose.level==0 & true.tox1<(1/3)  ~ "false ET",
     TRUE ~ toxicity.MTD))
 
-ped_datamanyx1 <- ped_datamanyx1 %>% mutate(ped.id = full.specifications.manyx1[index,]$ped.id) %>% rename(simulation.ID.ped = simulation.ID)
-
+ped_datamanyx1 <- ped_datamanyx1 %>% rename("simulation.ID.ped" = simulation.ID)
 ped_datamanyx1 <- left_join(ped_datamanyx1, full.specifications.manyx1, by=c("index"))
-
 
 
 bind_rows(ped_datamanyx1 %>% add_column(design="many_by_1"), ped_data1x1 %>% add_column(design="1_by_1")) %>% 
   group_by("Prior" = unlist(specification), ped.scenario, design) %>% 
-  summarize("Acceptable" = sum(toxicity.MTD=="acceptable"),
-            "Correct ET" = sum(toxicity.MTD=="correct ET"),
-            "Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"),
+  summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"),
             "N"=n()) %>% 
-  pivot_longer(., cols=c(Acceptable, `Correct ET`, `Sum of \ncorrect decisions`), names_to="Decision", values_to="Number") %>%
+  pivot_longer(., cols=c(`Sum of \ncorrect decisions`), names_to="Decision", values_to="Number") %>%
   rowwise() %>%
   mutate("Proportion" = 100*Number/N) %>%
   pivot_wider(id_cols = c(Prior, ped.scenario, design, Decision), 
               values_from=c(Proportion), 
               names_from=design, names_glue = '{design}.{.value}') %>%
-  mutate(prop.diff = `1_by_1.Proportion` - many_by_1.Proportion)
+  mutate(prop.diff = `1_by_1.Proportion` - many_by_1.Proportion) 
+
+
+# compare results to the case when only the same adult simulations are used
+# --> difference in estimation is reduced
+
+bind_rows(ped_datamanyx1 %>% add_column(design="many_by_1"), 
+          ped_data1x1 %>% filter(simulation.ID.y %in% sample.ID) %>% 
+            add_column(design="1_by_1")) %>% 
+  group_by("Prior" = unlist(specification), ped.scenario, design) %>% 
+  summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"),
+            "N"=n()) %>% 
+  pivot_longer(., cols=c(`Sum of \ncorrect decisions`), names_to="Decision", values_to="Number") %>%
+  rowwise() %>%
+  mutate("Proportion" = 100*Number/N) %>%
+  pivot_wider(id_cols = c(Prior, ped.scenario, design, Decision), 
+              values_from=c(Proportion), 
+              names_from=design, names_glue = '{design}.{.value}') %>%
+  mutate(prop.diff = `1_by_1.Proportion` - many_by_1.Proportion) 
+
+
+######
+# perform a simple simulation that kind of mimics the simulation procedure 
+create_samples_diff <- function(shape1, shape2, nsim){
+  beta_probs <- rbeta(n=nsim,shape1=shape1,shape2=shape2) # mimics the variability in adult trials
+  rbind(
+    sum(rbinom(n=length(beta_probs),size=1,prob=beta_probs))/length(beta_probs), # this is the standard 1by1 approach 
+      sum(rbinom(n=length(beta_probs)/1e2,size=1e2,prob=sample(beta_probs,size=1e2))/1e2)/(length(beta_probs)/1e2)) # this is the many_by_1 approach: for each adult trial, repeat 100 times
+}
+samples_diff <- t(replicate(1e4,create_samples_diff(shape1=5,shape2=5,nsim=1e5), simplify = TRUE))
+as_tibble(samples_diff) %>% rename("1_by_1"=V1, "many_by_1"=V2) %>% pivot_longer(cols = everything()) %>%
+  ggplot(.) + geom_histogram(aes(x=value, fill=name), alpha=0.5, bins = 100) + theme_bw()
+quantile(samples_diff,probs = c(0.025,0.5,0.975))
+
+# --> with large variance in adult settings, the variance in the difference (in percentage points) is quite large:
+# replicate(1e4,create_samples_diff(shape1=0.1,shape2=0.1,nsim=1e5))
+# 2.5%       50%       97.5% 
+# -8.861225  0.071500  8.890275 
+
+# with little variance
+# replicate(1e4,create_samples_diff(shape1=5,shape2=5,nsim=1e5))
+# 2.5%       50%       97.5% 
+# -2.995075  0.026500  3.044050
