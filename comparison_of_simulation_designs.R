@@ -159,6 +159,7 @@ full.specifications <- full.specifications %>%
 ########################################
 
 full.specifications$ped.id <- as.numeric(rownames(full.specifications))
+saveRDS(full.specifications, file="full_specifications_comparison_of_designs.RDS")
 
 ncores <- detectCores()*7/8; cl <- makeCluster(ncores); registerDoParallel(cl);
 
@@ -194,7 +195,7 @@ for(i in 1:steps){
                               skeleton = c(input.simulation$skeleton1,input.simulation$skeleton2,input.simulation$skeleton3,input.simulation$skeleton4), 
                               dR = input.simulation$dR, stopping.rule = "mean", escalation.rule = "mean",
                               sample.size = input.simulation$sample.size, n.sim = 1, cohort.size = 2, 
-                              iterations = 5000, stanmodel = stanmodel)
+                              iterations = 10000, stanmodel = stanmodel)
     
     results.sim <- cbind(results.sim[[1]], "index"=index)                                              
     return(results.sim)
@@ -217,14 +218,15 @@ ped_data1x1 <- readRDS("ped_data1x1.rds")
 ########################################
 ######## Simulation pediatric trials manyx1
 ########################################
-
+set.seed(16)
 sample.ID <- sample(unique(full.specifications$simulation.ID),n.sim/50,replace=FALSE)
 full.specifications.manyx1 <- full.specifications %>% filter(simulation.ID %in% sample.ID) %>%
-  rownames_to_column(var="index") %>% mutate(index = as.numeric(index))
+  rownames_to_column(var="index") %>% mutate(index = as.numeric(index)) %>% filter(specification=="2P.weak" & ped.scenario=="same")
+saveRDS(full.specifications.manyx1, file="full_specifications_comparison_of_designs_manyx1.RDS")
 
 ncores <- detectCores()*7/8; cl <- makeCluster(ncores); registerDoParallel(cl);
 
-steps <- nrow(full.specifications.manyx1)*100/1000 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
+steps <- nrow(full.specifications.manyx1)/100 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
 
 for(i in 1:steps){
   
@@ -232,36 +234,36 @@ for(i in 1:steps){
   
   results <- foreach(index=((nrow(full.specifications.manyx1)/steps)*(i-1)+1):((nrow(full.specifications.manyx1)/steps)*i), 
                      .combine=rbind, .multicombine=F, .packages = c("rstan")) %dopar% {
-    
-    # define columns that are used for the prior
-    input.simulation <- full.specifications.manyx1[index,]
-    
-    if(input.simulation$specification %in% c("1P.weak", "1P.full", "1P.calibrated", "1P.oracle")){
-      prior <- list(0,input.simulation$prior.1P)
-      alg <- "CRM"; borrow <- "fixed"; stanmodel <- crm.fixed
-    } else if(input.simulation$specification=="1P.mixture"){
-      prior <- list(c(0,input.simulation$prior.1P), c(0,input.simulation$prior.1P2))
-      alg <- "CRM"; borrow <- "mixture"; stanmodel <- crm.mixture
-    } else if(input.simulation$specification %in% c("2P.weak", "2P.full", "2P.weighted", "2P.calibrated", "2P.weighted.25", "2P.weighted.50", "2P.weighted.75", "2P.oracle")){
-      prior <- list(input.simulation$alpha,input.simulation$beta, matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T))
-      alg <- "PLM2"; borrow <- "fixed"; stanmodel <- PLM2.fixed
-    } else if(input.simulation$specification=="2P.mixture"){
-      prior <- list(list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T)),
-                    list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha2,rep(input.simulation$covariance2,2),input.simulation$var.beta2),nrow=2,byrow=T)))
-      alg <- "PLM2"; borrow <- "mixture"; stanmodel <- PLM2.mixture
-    }
-    
-    results.sim <- sim.phaseI(algorithm=alg, doses = c(input.simulation$ped.dose1,input.simulation$ped.dose2,input.simulation$ped.dose3,input.simulation$ped.dose4), 
-                              target.tox = 0.25, true.tox = c(input.simulation$tox.dose1,input.simulation$tox.dose2,input.simulation$tox.dose3,input.simulation$tox.dose4), 
-                              prior = prior, borrow = borrow, prior.distr = "Normal",
-                              skeleton = c(input.simulation$skeleton1,input.simulation$skeleton2,input.simulation$skeleton3,input.simulation$skeleton4), 
-                              dR = input.simulation$dR, stopping.rule = "mean", escalation.rule = "mean",
-                              sample.size = input.simulation$sample.size, n.sim = 100, cohort.size = 2, 
-                              iterations = 5000, stanmodel = stanmodel)
-    
-    results.sim <- cbind(results.sim[[1]], "index"=index)                                              
-    return(results.sim)
-  }
+                       
+                       # define columns that are used for the prior
+                       input.simulation <- full.specifications.manyx1[index,]
+                       
+                       if(input.simulation$specification %in% c("1P.weak", "1P.full", "1P.calibrated", "1P.oracle")){
+                         prior <- list(0,input.simulation$prior.1P)
+                         alg <- "CRM"; borrow <- "fixed"; stanmodel <- crm.fixed
+                       } else if(input.simulation$specification=="1P.mixture"){
+                         prior <- list(c(0,input.simulation$prior.1P), c(0,input.simulation$prior.1P2))
+                         alg <- "CRM"; borrow <- "mixture"; stanmodel <- crm.mixture
+                       } else if(input.simulation$specification %in% c("2P.weak", "2P.full", "2P.weighted", "2P.calibrated", "2P.weighted.25", "2P.weighted.50", "2P.weighted.75", "2P.oracle")){
+                         prior <- list(input.simulation$alpha,input.simulation$beta, matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T))
+                         alg <- "PLM2"; borrow <- "fixed"; stanmodel <- PLM2.fixed
+                       } else if(input.simulation$specification=="2P.mixture"){
+                         prior <- list(list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T)),
+                                       list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha2,rep(input.simulation$covariance2,2),input.simulation$var.beta2),nrow=2,byrow=T)))
+                         alg <- "PLM2"; borrow <- "mixture"; stanmodel <- PLM2.mixture
+                       }
+                       
+                       results.sim <- sim.phaseI(algorithm=alg, doses = c(input.simulation$ped.dose1,input.simulation$ped.dose2,input.simulation$ped.dose3,input.simulation$ped.dose4), 
+                                                 target.tox = 0.25, true.tox = c(input.simulation$tox.dose1,input.simulation$tox.dose2,input.simulation$tox.dose3,input.simulation$tox.dose4), 
+                                                 prior = prior, borrow = borrow, prior.distr = "Normal",
+                                                 skeleton = c(input.simulation$skeleton1,input.simulation$skeleton2,input.simulation$skeleton3,input.simulation$skeleton4), 
+                                                 dR = input.simulation$dR, stopping.rule = "mean", escalation.rule = "mean",
+                                                 sample.size = input.simulation$sample.size, n.sim = 100, cohort.size = 2, 
+                                                 iterations = 10000, stanmodel = stanmodel)
+                       
+                       results.sim <- cbind(results.sim[[1]], "index"=index)                                              
+                       return(results.sim)
+                     }
   
   if(i==1) { ped_datamanyx1 <- results } else { ped_datamanyx1 <- rbind(ped_datamanyx1, results) }
   
@@ -270,6 +272,67 @@ for(i in 1:steps){
   end.time <- Sys.time()
   time.taken <- difftime(end.time, start.time, units = "min") 
   print(paste("Iteration Number", (nrow(full.specifications.manyx1)/steps)*i, ", time taken for this iteration", time.taken, ", current time", Sys.time()))
+}
+
+stopCluster(cl) # end parallel computing 
+
+
+################################################################################################################################################################
+# do the same for mixture prior
+set.seed(16)
+sample.ID <- sample(unique(full.specifications$simulation.ID),n.sim/50,replace=FALSE)
+full.specifications.manyx1.mixture <- full.specifications %>% filter(simulation.ID %in% sample.ID) %>%
+  rownames_to_column(var="index") %>% mutate(index = as.numeric(index)) %>% filter(specification=="2P.mixture" & ped.scenario=="same")
+saveRDS(full.specifications.manyx1.mixture, file="full_specifications_comparison_of_designs_manyx1_mixture.RDS")
+
+ncores <- detectCores()*7/8; cl <- makeCluster(ncores); registerDoParallel(cl);
+
+steps <- nrow(full.specifications.manyx1.mixture)/200 # in how many steps will the simulation be partitioned? One step should include not more than approx. 1000 trials to avoid running out of memory.
+
+for(i in 1:steps){
+  
+  start.time <- Sys.time()
+  
+  results <- foreach(index=((nrow(full.specifications.manyx1.mixture)/steps)*(i-1)+1):((nrow(full.specifications.manyx1.mixture)/steps)*i), 
+                     .combine=rbind, .multicombine=F, .packages = c("rstan")) %dopar% {
+                       
+                       # define columns that are used for the prior
+                       input.simulation <- full.specifications.manyx1.mixture[index,]
+                       
+                       if(input.simulation$specification %in% c("1P.weak", "1P.full", "1P.calibrated", "1P.oracle")){
+                         prior <- list(0,input.simulation$prior.1P)
+                         alg <- "CRM"; borrow <- "fixed"; stanmodel <- crm.fixed
+                       } else if(input.simulation$specification=="1P.mixture"){
+                         prior <- list(c(0,input.simulation$prior.1P), c(0,input.simulation$prior.1P2))
+                         alg <- "CRM"; borrow <- "mixture"; stanmodel <- crm.mixture
+                       } else if(input.simulation$specification %in% c("2P.weak", "2P.full", "2P.weighted", "2P.calibrated", "2P.weighted.25", "2P.weighted.50", "2P.weighted.75", "2P.oracle")){
+                         prior <- list(input.simulation$alpha,input.simulation$beta, matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T))
+                         alg <- "PLM2"; borrow <- "fixed"; stanmodel <- PLM2.fixed
+                       } else if(input.simulation$specification=="2P.mixture"){
+                         prior <- list(list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha,rep(input.simulation$covariance,2),input.simulation$var.beta),nrow=2,byrow=T)),
+                                       list(c(input.simulation$alpha,input.simulation$beta), matrix(c(input.simulation$var.alpha2,rep(input.simulation$covariance2,2),input.simulation$var.beta2),nrow=2,byrow=T)))
+                         alg <- "PLM2"; borrow <- "mixture"; stanmodel <- PLM2.mixture
+                       }
+                       
+                       results.sim <- sim.phaseI(algorithm=alg, doses = c(input.simulation$ped.dose1,input.simulation$ped.dose2,input.simulation$ped.dose3,input.simulation$ped.dose4), 
+                                                 target.tox = 0.25, true.tox = c(input.simulation$tox.dose1,input.simulation$tox.dose2,input.simulation$tox.dose3,input.simulation$tox.dose4), 
+                                                 prior = prior, borrow = borrow, prior.distr = "Normal",
+                                                 skeleton = c(input.simulation$skeleton1,input.simulation$skeleton2,input.simulation$skeleton3,input.simulation$skeleton4), 
+                                                 dR = input.simulation$dR, stopping.rule = "mean", escalation.rule = "mean",
+                                                 sample.size = input.simulation$sample.size, n.sim = 100, cohort.size = 2, 
+                                                 iterations = 10000, stanmodel = stanmodel)
+                       
+                       results.sim <- cbind(results.sim[[1]], "index"=index)                                              
+                       return(results.sim)
+                     }
+  
+  if(i==1) { ped_datamanyx1_mixture <- results } else { ped_datamanyx1_mixture <- rbind(ped_datamanyx1_mixture, results) }
+  
+  saveRDS(ped_datamanyx1_mixture, "ped_datamanyx1_mixture.rds")
+  
+  end.time <- Sys.time()
+  time.taken <- difftime(end.time, start.time, units = "min") 
+  print(paste("Iteration Number", (nrow(full.specifications.manyx1.mixture)/steps)*i, ", time taken for this iteration", time.taken, ", current time", Sys.time()))
 }
 
 stopCluster(cl) # end parallel computing 
@@ -366,26 +429,110 @@ bind_rows(ped_datamanyx1 %>% add_column(design="many_by_1"),
               names_from=design, names_glue = '{design}.{.value}') %>%
   mutate(prop.diff = `1_by_1.Proportion` - many_by_1.Proportion) 
 
+ped_datamanyx1 %>% group_by(index) %>% 
+  summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+  mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>%
+  ggplot(.) + geom_col(aes(x=prop_correct_decision, y=N/nrow(ped_datamanyx1))) + 
+  theme_bw() + scale_x_continuous(limits=c(0,1)) + ylab("Percentage of simulations") + xlab("Proportion with correct decision")
 
-######
-# perform a simple simulation that kind of mimics the simulation procedure 
-create_samples_diff <- function(shape1, shape2, nsim){
-  beta_probs <- rbeta(n=nsim,shape1=shape1,shape2=shape2) # mimics the variability in adult trials
-  rbind(
-    sum(rbinom(n=length(beta_probs),size=1,prob=beta_probs))/length(beta_probs), # this is the standard 1by1 approach 
-      sum(rbinom(n=length(beta_probs)/1e2,size=1e2,prob=sample(beta_probs,size=1e2))/1e2)/(length(beta_probs)/1e2)) # this is the many_by_1 approach: for each adult trial, repeat 100 times
-}
-samples_diff <- t(replicate(1e4,create_samples_diff(shape1=5,shape2=5,nsim=1e5), simplify = TRUE))
-as_tibble(samples_diff) %>% rename("1_by_1"=V1, "many_by_1"=V2) %>% pivot_longer(cols = everything()) %>%
-  ggplot(.) + geom_histogram(aes(x=value, fill=name), alpha=0.5, bins = 100) + theme_bw()
-quantile(samples_diff,probs = c(0.025,0.5,0.975))
 
-# --> with large variance in adult settings, the variance in the difference (in percentage points) is quite large:
-# replicate(1e4,create_samples_diff(shape1=0.1,shape2=0.1,nsim=1e5))
-# 2.5%       50%       97.5% 
-# -8.861225  0.071500  8.890275 
+ped_datamanyx1 %>% group_by(index, doses1) %>% 
+  summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+  mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>%
+  ggplot(.) + geom_col(aes(x=prop_correct_decision, y=N/nrow(ped_datamanyx1))) + 
+  theme_bw() + scale_x_continuous(limits=c(0,1)) + ylab("Percentage of simulations") + xlab("Proportion with correct decision") +
+  facet_grid(~doses1)
 
-# with little variance
-# replicate(1e4,create_samples_diff(shape1=5,shape2=5,nsim=1e5))
-# 2.5%       50%       97.5% 
-# -2.995075  0.026500  3.044050
+
+ped_datamanyx1 %>% group_by(index, doses1) %>% 
+  summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+  mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>%
+  ggplot(.) + geom_col(aes(x=prop_correct_decision, y=N/nrow(ped_datamanyx1))) + 
+  geom_point(data = ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same") %>% group_by(doses1) %>% 
+               summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+               mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N),
+             aes(x=prop_correct_decision, y=0.0005), shape=23, fill="red", color="red")  + 
+  theme_bw() + scale_x_continuous(limits=c(0,1)) + ylab("Percentage of simulations") + xlab("Proportion with correct decision") +
+  facet_grid(~doses1) 
+
+
+
+# Quantiles of the 1:1 estimate in the distribution of many:1
+
+round(rbind(
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==3.5) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==3.5) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==7) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==7) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==10.5) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==10.5) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==14) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==14) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==18.9) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==18.9) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==25.2) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==25.2) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision),
+  
+  ecdf(
+    ped_datamanyx1 %>% filter(doses1==32.9) %>% group_by(index) %>% 
+      summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+      mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)(
+        ped_data1x1 %>% filter(specification=="2P.weak", ped.scenario=="same", doses1==32.9) %>% group_by(doses1) %>% 
+          summarize("Sum of \ncorrect decisions" = sum(toxicity.MTD=="acceptable" | toxicity.MTD=="correct ET"), "N"=n()) %>%
+          mutate(prop_correct_decision = `Sum of \ncorrect decisions`/N) %>% .$prop_correct_decision)),2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
